@@ -2,13 +2,15 @@
    Caches the whole app so the till iPad opens and runs with no wifi.
    Bump CACHE whenever any file changes, or the iPad keeps the old copy. */
 
-const CACHE = 'timers-v26';
+const CACHE = 'timers-v28';
 const FILES = [
   './',
   './index.html',
   './logo.svg',
   './icon-180.png',
   './icon-512.png',
+  './favicon.svg',
+  './favicon-32.png',
   './manifest.webmanifest',
   './img/01.jpg',
   './img/010.jpg',

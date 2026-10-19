@@ -10,6 +10,8 @@
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>Zaha Timers</title>
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
   :root {
@@ -140,6 +142,7 @@
   .sheet p.lead { margin: 0 0 16px; font-weight: 300; font-size: 15px; }
   .sheet .stack { display: flex; flex-direction: column; gap: 10px; }
   .sheet .stack .btn { width: 100%; justify-content: center; min-height: 56px; font-size: 17px; }
+  .sheet .stack .btn:disabled { opacity: .45; }
   .field { margin-bottom: 16px; }
   .field label { display: block; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; margin-bottom: 6px; }
   .field input[type=text], .field select {
@@ -199,7 +202,7 @@
 <header class="bar">
   <span class="brand"><img class="logo" src="logo.svg" alt="Zaha"><span class="title">Timers</span></span>
   <span class="clock" id="clock">--:--</span>
-  <button class="btn primary" id="startAllBtn">Start all</button>
+  <button class="btn primary" id="startAllBtn">Start section</button>
   <button class="btn icon" id="soundBtn" aria-label="Sound settings"></button>
   <button class="btn" id="editBtn">Edit</button>
 </header>
@@ -235,18 +238,14 @@
 
 <div class="toast" id="toast"><span id="toastMsg"></span><button id="undoBtn">Undo</button></div>
 
-<!-- Start all -->
+<!-- Start a section -->
 <div class="scrim" id="startSheet">
   <div class="sheet">
-    <h3>Start timers</h3>
-    <p class="lead">This restarts the chosen timers from now, including any already running. All timers stop by themselves at 21:30.</p>
-    <div class="stack">
-      <button class="btn primary" data-start="all">Start everything</button>
-      <button class="btn" data-start="hot">Start all hot <span class="n-hot"></span></button>
-      <button class="btn" data-start="cold">Start all cold <span class="n-cold"></span></button>
-      <button class="btn" data-start="room">Start all room temp <span class="n-room"></span></button>
-      <button class="btn" data-start="stop">Stop everything (end of day)</button>
-      <button class="btn" data-demo>Try a 5-second demo</button>
+    <h3>Start a section</h3>
+    <p class="lead">Starts every item in that section that is switched off. Timers already running are left as they are.</p>
+    <div class="stack" id="startList"></div>
+    <div class="stack" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--stone)">
+      <button class="btn" id="stopAllBtn" style="color:var(--clay)">Stop everything (end of day)</button>
       <button class="btn" data-close>Cancel</button>
     </div>
   </div>
@@ -309,7 +308,6 @@
     </div>
     <div class="foot">
       <button class="btn" id="testSound">Play test sound</button>
-      <button class="btn" id="demoBtn">Try a 5-second demo</button>
       <span class="grow"></span>
       <button class="btn primary" data-close>Done</button>
     </div>
@@ -395,7 +393,7 @@
     return s;
   }
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify({ ...state, items: state.items.filter(i => !i.demo) })); }
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { showToast('Could not save. The photo may be too large.', false); }
   }
   const byId = id => state.items.find(i => i.id === id);
@@ -638,25 +636,34 @@
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSheets));
   document.querySelectorAll('.scrim').forEach(s => s.addEventListener('click', e => { if (e.target === s) closeSheets(); }));
 
-  // Start all
+  // Start a section: only its switched-off items, so nothing already running loses its real time.
   $('#startAllBtn').addEventListener('click', () => {
     unlockAudio();
-    $('.n-hot').textContent = '(' + state.items.filter(i => i.kind === 'hot').length + ')';
-    $('.n-cold').textContent = '(' + state.items.filter(i => i.kind === 'cold').length + ')';
-    $('.n-room').textContent = '(' + state.items.filter(i => i.kind === 'room').length + ')';
+    $('#startList').innerHTML = GROUPS.map(([g, name]) => {
+      const items = state.items.filter(i => i.group === g);
+      if (!items.length) return '';
+      const off = items.filter(i => i.start == null).length;
+      return `<button class="btn${off ? '' : ' done'}" data-group="${g}"${off ? '' : ' disabled'}>${esc(name)} <span style="font-weight:300">${off ? '· ' + off + ' off' : '· all running'}</span></button>`;
+    }).join('');
     openSheet('#startSheet');
   });
-  document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
-    const which = b.dataset.start, now = Date.now();
+  $('#startList').addEventListener('click', e => {
+    const b = e.target.closest('[data-group]');
+    if (!b) return;
+    const now = Date.now();
+    const started = state.items.filter(i => i.group === b.dataset.group && i.start == null);
+    started.forEach(i => { i.start = now; delete i.alarmedAt; });
+    save(); closeSheets(); tick();
+    undo = () => { started.forEach(i => { i.start = null; }); save(); tick(); };
+    showToast(`${GROUP_NAME[b.dataset.group]}: ${started.length} started`, true);
+  });
+  $('#stopAllBtn').addEventListener('click', () => {
     const before = state.items.map(i => [i, i.start]);
-    for (const it of state.items) {
-      if (which === 'stop') it.start = null;
-      else if (which === 'all' || which === it.kind) { it.start = now; delete it.alarmedAt; }
-    }
+    state.items.forEach(i => { i.start = null; });
     save(); closeSheets(); tick();
     undo = () => { before.forEach(([i, s]) => { i.start = s; }); save(); tick(); };
-    showToast(which === 'stop' ? 'All timers stopped' : which === 'all' ? 'All timers started' : `All ${which === 'room' ? 'room temp' : which} timers started`, true);
-  }));
+    showToast('All timers stopped', true);
+  });
 
   // Edit mode
   // Edit needs the manager PIN (set in the dashboard, checked by the server). Edit closes itself after
@@ -833,16 +840,6 @@
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) location.reload(); });
   }
-
-  // A 5-second test tile (never saved) to see and hear what expiry looks like. Bell menu, or open with ?demo.
-  function addDemo() {
-    const d = byId('demo');
-    if (d) { d.start = Date.now(); delete d.alarmedAt; return tick(); }
-    state.items.unshift({ id: 'demo', demo: true, name: 'Demo · 5 sec', group: 'greens', kind: 'hot', mins: 5 / 60, img: 'img/022.jpg?v=2', start: Date.now() });
-    if (!document.body.classList.contains('locked')) render();
-  }
-  document.querySelectorAll('#demoBtn, [data-demo]').forEach(b => b.addEventListener('click', () => { unlockAudio(); closeSheets(); addDemo(); }));
-  if (/[?&]demo\b/.test(location.search)) addDemo();
 
   // ---------- access: this iPad must be paired with a code from the dashboard ----------
   // The server decides. A paired iPad keeps working with no internet; it only locks when the server
